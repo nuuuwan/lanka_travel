@@ -1,4 +1,5 @@
 from shapely import Point
+from utils import JSONFile
 
 
 class LatLng:
@@ -15,5 +16,12 @@ class LatLng:
     def __hash__(self):
         return hash(str(self))
 
+    def to_list(self):
+        return [self.lat, self.lng]
+
     def to_point(self):
         return Point(self.lng, self.lat)
+
+    @staticmethod
+    def list_from_file(file_path: str) -> list["LatLng"]:
+        return [LatLng(lat, lng) for lat, lng in JSONFile(file_path).read()]
