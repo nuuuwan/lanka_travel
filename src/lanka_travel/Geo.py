@@ -37,6 +37,8 @@ class Geo:
     def store_idx(self):
         sorted_idx = dict(sorted(self.idx.items(), key=lambda item: item[0]))
         Geo.IDX_JSON_FILE.write(sorted_idx)
+        n = len(sorted_idx)
+        log.info(f"Stored {n} mappings to {Geo.IDX_PATH}")
 
     @cache
     def __get_all_geodata__(self, region_ent_type_name):

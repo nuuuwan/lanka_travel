@@ -41,6 +41,8 @@ class LankaTravel:
     @staticmethod
     def __get_region_idx_part__(geo, latlng):
         region_id = geo.get_region_id(latlng)
+        if not region_id:
+            return None
 
         return {
             "province": region_id[:4],
@@ -53,24 +55,19 @@ class LankaTravel:
 
         geo = Geo()
         n = len(self.latlng_list)
-        workers = []
-        for i, latlng in enumerate(self.latlng_list):
-
-            def worker(i=i, latlng=latlng):
-                idx_part = self.__get_region_idx_part__(geo, latlng)
-                print(f"{i}/{n} {latlng} -> {idx_part['gnd']}", end="\r")
-                return idx_part
-
-            workers.append(worker)
-
-        idx_party_list = Parallel.run(workers, max_threads=16)
         idx = {}
-        for idx_part in idx_party_list:
+        for i, latlng in enumerate(self.latlng_list):
+            idx_part = self.__get_region_idx_part__(geo, latlng)
+            if not idx_part:
+                continue
+            print(f"{i}/{n} {latlng} -> {idx_part['gnd']}", end="\r")
+
             for region_ent_type_name, region_id in idx_part.items():
                 if region_ent_type_name not in idx:
                     idx[region_ent_type_name] = set()
                 idx[region_ent_type_name].add(region_id)
-        geo.store_idx()
+            if i % 10 == 0:
+                geo.store_idx()
         return idx
 
     def draw(self):
