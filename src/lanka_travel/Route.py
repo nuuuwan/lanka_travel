@@ -57,5 +57,6 @@ class Route:
                     file_path = os.path.join(root, file)
                     route = Route.from_file(file_path)
                     route_list.append(route)
+
         log.info(f"Loaded {len(route_list):,} routes from {Route.DIR_DATA}")
         return route_list

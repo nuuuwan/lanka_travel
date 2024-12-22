@@ -1,22 +1,24 @@
 import os
+from functools import cached_property
 
 import matplotlib.pyplot as plt
 from gig import Ent, EntType
-from utils import Hash, JSONFile, Log
+from utils import Log, Parallel
 
 from lanka_travel.Geo import Geo
+from lanka_travel.Route import Route
+from utils_future import LatLng
 
 log = Log("LankaTravel")
 
 
 class LankaTravel:
-    DIR_DATA_ROUTES = os.path.join("data", "routes")
-    DIR_DATA_IDX = os.path.join("data", "idx")
+    BASE_COLOR = "#ff0000"
     COLOR_IDX = {
-        EntType.PROVINCE.name: "#f001",
-        EntType.DISTRICT.name: "#f003",
-        EntType.DSD.name: "#f008",
-        EntType.GND.name: "#f00f",
+        EntType.PROVINCE.name: BASE_COLOR + "08",
+        EntType.DISTRICT.name: BASE_COLOR + "10",
+        EntType.DSD.name: BASE_COLOR + "20",
+        EntType.GND.name: BASE_COLOR + "ff",
     }
 
     EDGE_COLOR_IDX = {
@@ -26,51 +28,49 @@ class LankaTravel:
         EntType.GND.name: "#8880",
     }
 
-    def __init__(self, latlng_list_list: list[list[tuple]]):
-        self.latlng_list_list = latlng_list_list
+    def __init__(self, route_list: list[Route]):
+        self.route_list = route_list
+
+    @cached_property
+    def latlng_list(self) -> list[LatLng]:
+        latlng_list = []
+        for route in self.route_list:
+            latlng_list.extend(route.latlng_list)
+        return list(set(latlng_list))
 
     @staticmethod
-    def get_region_idx_for_latlng_list(latlng_list) -> dict[str, list[str]]:
-        h = Hash.md5(str(latlng_list))[:4]
-        idx_file_path = os.path.join(LankaTravel.DIR_DATA_IDX, f"{h}.json")
-        if os.path.exists(idx_file_path):
-            idx = JSONFile(idx_file_path).read()
-            log.debug(f"Read {idx_file_path}")
-            return idx
+    def __get_region_idx_part__(geo, latlng):
+        region_id = geo.get_region_id(latlng)
 
-        idx = LankaTravel.get_region_idx_for_latlng_list_nocache(latlng_list)
-        JSONFile(idx_file_path).write(idx)
-        log.info(f"Wrote {idx_file_path}")
-        return idx
-
-    @staticmethod
-    def get_region_idx_for_latlng_list_nocache(
-        latlng_list,
-    ) -> dict[str, list[str]]:
-
-        idx = {}
-        n = len(latlng_list)
-        for i, latlng in enumerate(latlng_list, start=1):
-            idx_item = Geo.get_latlng_regions(latlng)
-            print(f"{i}/{n} {latlng} -> {idx_item}", end="\r")
-
-            for ent_type_name, id in idx_item.items():
-                if ent_type_name not in idx:
-                    idx[ent_type_name] = set()
-                idx[ent_type_name].add(id)
-        idx = {k: list(sorted(v)) for k, v in idx.items()}
-
-        return idx
+        return {
+            "province": region_id[:4],
+            "district": region_id[:5],
+            "dsd": region_id[:7],
+            "gnd": region_id[:10],
+        }
 
     def get_region_idx(self) -> dict[str, list[str]]:
+
+        geo = Geo()
+        n = len(self.latlng_list)
+        workers = []
+        for i, latlng in enumerate(self.latlng_list):
+
+            def worker(i=i, latlng=latlng):
+                idx_part = self.__get_region_idx_part__(geo, latlng)
+                print(f"{i}/{n} {latlng} -> {idx_part['gnd']}", end="\r")
+                return idx_part
+
+            workers.append(worker)
+
+        idx_party_list = Parallel.run(workers, max_threads=16)
         idx = {}
-        for latlng_list in self.latlng_list_list:
-            idx_item = self.get_region_idx_for_latlng_list(latlng_list)
-            for ent_type_name, region_ids in idx_item.items():
-                if ent_type_name not in idx:
-                    idx[ent_type_name] = set()
-                idx[ent_type_name].update(region_ids)
-        idx = {k: list(sorted(v)) for k, v in idx.items()}
+        for idx_part in idx_party_list:
+            for region_ent_type_name, region_id in idx_part.items():
+                if region_ent_type_name not in idx:
+                    idx[region_ent_type_name] = set()
+                idx[region_ent_type_name].add(region_id)
+        geo.store_idx()
         return idx
 
     def draw(self):
@@ -119,22 +119,3 @@ class LankaTravel:
         plt.close()
         log.info(f"Saved {image_path}")
         os.startfile(image_path)
-
-    @staticmethod
-    def all():
-        #  in os.walk("data"):
-        latlng_list_list = []
-        for root, ___, files in os.walk(LankaTravel.DIR_DATA_ROUTES):
-            for file in files:
-                if file.endswith(".json"):
-                    file_path = os.path.join(root, file)
-                    latlng_list = JSONFile(file_path).read()
-                    log.debug(
-                        f"Read {len(latlng_list):,} latlngs from {file_path}"
-                    )
-                    latlng_list_list.append(latlng_list)
-        log.info(
-            f"Loaded {len(latlng_list_list):,}"
-            + f" latlng_lists from {LankaTravel.DIR_DATA_ROUTES}"
-        )
-        return LankaTravel(latlng_list_list)
